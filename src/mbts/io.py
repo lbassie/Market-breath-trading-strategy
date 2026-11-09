@@ -135,3 +135,51 @@ def load_eodhd(ticker: str, start: str = "2005-01-01", api_key: str | None = Non
     df = pd.DataFrame(r.json())
     df["date"] = pd.to_datetime(df["date"])
     return df.set_index("date").sort_index()
+
+FRENCH_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+
+
+def parse_french_section(text: str, section: str | None = None) -> pd.DataFrame:
+    """Parse one table from a Ken French CSV. section=None takes the first table.
+
+    Returns daily returns in decimals; -99.99 / -999 become NaN.
+    """
+    from io import StringIO
+    lines = text.splitlines()
+    start = 0
+    if section is not None:
+        start = next(i for i, ln in enumerate(lines) if ln.strip() == section) + 1
+    hdr = next(i for i in range(start, len(lines)) if lines[i].startswith(","))
+    end = hdr + 1
+    while end < len(lines) and lines[end].strip() and lines[end].strip()[0].isdigit():
+        end += 1
+    df = pd.read_csv(StringIO("\n".join(lines[hdr:end])), index_col=0)
+    df.index = pd.to_datetime(df.index.astype(str).str.strip(), format="%Y%m%d")
+    df.columns = [c.strip() for c in df.columns]
+    df = df.apply(pd.to_numeric, errors="coerce")
+    return (df.mask(df <= -99.99) / 100.0).sort_index()
+
+
+def _french_csv(zip_name: str, cache: bool = True) -> str:
+    import zipfile
+    from io import BytesIO
+    path = RAW / zip_name
+    if not (cache and path.exists()):
+        r = requests.get(FRENCH_URL + zip_name, timeout=180)
+        r.raise_for_status()
+        RAW.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(r.content)
+    with zipfile.ZipFile(path) as z:
+        return z.read(z.namelist()[0]).decode("latin-1")
+
+
+def fetch_french_industries_daily(n: int = 49, weighting: str = "value") -> pd.DataFrame:
+    """Daily returns (decimal) of the Ken French n-industry portfolios, 1926 to date."""
+    text = _french_csv(f"{n}_Industry_Portfolios_daily_CSV.zip")
+    title = "Average Value Weighted Returns -- Daily" if weighting == "value" else "Average Equal Weighted Returns -- Daily"
+    return parse_french_section(text, title)
+
+
+def fetch_french_factors_daily() -> pd.DataFrame:
+    """Daily Mkt-RF, SMB, HML, RF (decimal). Market return = Mkt-RF + RF."""
+    return parse_french_section(_french_csv("F-F_Research_Data_Factors_daily_CSV.zip"))

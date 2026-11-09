@@ -65,6 +65,19 @@ def block_bootstrap(r: pd.Series, stat, block: int = 21, n_boot: int = 2000, see
     return out
 
 
+def block_bootstrap_paired(rets: pd.DataFrame, stat, block: int = 21, n_boot: int = 2000, seed: int = 0) -> np.ndarray:
+    """Block bootstrap that resamples the same dates for all columns (for differences between rules)."""
+    rng = np.random.default_rng(seed)
+    x = rets.dropna()
+    n = len(x)
+    out = np.empty(n_boot)
+    for b in range(n_boot):
+        starts = rng.integers(0, n, size=n // block + 1)
+        idx = np.concatenate([np.arange(s, min(s + block, n)) for s in starts])[:n]
+        out[b] = stat(x.iloc[idx].reset_index(drop=True))
+    return out
+
+
 def log_trial(name: str, params: dict, metrics: dict, sample: str = "in-sample", path: Path = TRIAL_LOG) -> None:
     """Append one tried variant. The count of trials feeds the Deflated Sharpe Ratio."""
     path.parent.mkdir(parents=True, exist_ok=True)

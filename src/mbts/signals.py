@@ -57,3 +57,39 @@ def trend_filter(close: pd.Series, n: int = 200) -> pd.Series:
     """Benchmark rule: long when close > n-day SMA, else cash."""
     sma = close.rolling(n, min_periods=n).mean()
     return (close > sma).astype(float).where(sma.notna(), 1.0)
+
+
+# ---- Phase 2: breadth as a filter on the trend rule -------------------------
+
+def expanding_threshold(x: pd.Series, q: float, min_periods: int = 252) -> pd.Series:
+    """Causal percentile threshold: the q-quantile of x up to t-1 (refit every day)."""
+    return x.expanding(min_periods=min_periods).quantile(q).shift(1)
+
+
+def _washout_recent(df: pd.DataFrame, q: float, hold: int) -> pd.Series:
+    thr = expanding_threshold(df["pct_rsi_lt30"], q)
+    wash = (df["pct_rsi_lt30"] >= thr).astype(float)
+    return wash.rolling(hold, min_periods=1).max().astype(bool)
+
+
+def _weak_breadth(df: pd.DataFrame, r1_window: int = 10, lookback: int = 252) -> pd.Series:
+    r1 = df["pct_rsi_gt70"].rolling(r1_window).mean()
+    return r1 < r1.rolling(lookback, min_periods=lookback).median()
+
+
+def t1_washout_reentry(df: pd.DataFrame, n: int = 200, q: float = 0.95, hold: int = 20) -> pd.Series:
+    """T1: trend rule, but long for `hold` days after an L1 washout (L1 >= causal q-percentile)."""
+    base = trend_filter(df["close"], n).astype(bool)
+    return (base | _washout_recent(df, q, hold)).astype(float)
+
+
+def t2_confirmed_exit(df: pd.DataFrame, n: int = 200) -> pd.Series:
+    """T2: go to cash only if close < SMA(n) AND breadth is weak (10d R1 avg < 252d median)."""
+    sma = df["close"].rolling(n, min_periods=n).mean()
+    below = (df["close"] < sma) & sma.notna()
+    return (~(below & _weak_breadth(df))).astype(float)
+
+
+def t3_combined(df: pd.DataFrame, n: int = 200, q: float = 0.95, hold: int = 20) -> pd.Series:
+    """T3: T2 exit rule plus the T1 washout re-entry."""
+    return (t2_confirmed_exit(df, n).astype(bool) | _washout_recent(df, q, hold)).astype(float)

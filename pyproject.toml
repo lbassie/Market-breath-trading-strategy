@@ -1,0 +1,19 @@
+[project]
+name = "mbts"
+version = "0.1.0"
+description = "Market breadth timing study on MSCI World (long/cash)"
+requires-python = ">=3.10"
+dependencies = ["pandas>=2.0", "numpy", "scipy", "statsmodels", "matplotlib", "openpyxl", "requests"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
